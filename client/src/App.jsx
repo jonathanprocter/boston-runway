@@ -254,7 +254,7 @@ export default function App() {
   // ============================================================
   const Shell = ({ children, showNav = false }) => (
     <div className="min-h-screen body john-bg john-ink">
-      <div className="max-w-3xl mx-auto px-6 sm:px-8 py-10">
+      <div className="max-w-3xl lg:max-w-4xl mx-auto px-5 xs:px-6 sm:px-8 md:px-10 py-8 sm:py-10">
         {showNav && (
           <div className="mb-10 flex flex-wrap justify-between items-center text-xs uppercase tracking-[0.2em] john-muted gap-3 stagger-in">
             <button onClick={() => goTo('dashboard')} className="nav-link tabular">

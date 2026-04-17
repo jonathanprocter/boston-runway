@@ -7,6 +7,13 @@ export default {
         display: ['Fraunces', 'Georgia', 'serif'],
         body: ['EB Garamond', 'Georgia', 'serif'],
       },
+      screens: {
+        'xs': '375px',   // iPhone SE
+        'sm': '640px',   // larger phones
+        'md': '768px',   // iPad mini / portrait
+        'lg': '1024px',  // iPad landscape
+        'xl': '1280px',  // iPad Pro
+      },
       colors: {
         ivory: '#F5F0E6',
         cream: '#FBF7EE',
