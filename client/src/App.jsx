@@ -1024,6 +1024,7 @@ export default function App() {
   // ============================================================
   if (phase === 'dashboard') {
     const dayOfWeek = new Date(today + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long' });
+    const shortDate = new Date(today + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
     return (
       <Shell showNav>
         {/* Offline banner */}
@@ -1035,33 +1036,27 @@ export default function App() {
         )}
 
         {/* Date ornament */}
-        <div className="stagger-in mb-6">
+        <div className="stagger-in mb-8">
           <div className="ornament text-xs uppercase tracking-[0.3em] tabular">
             <span>John · {dayOfWeek} · {fmtLongDate(today)}</span>
           </div>
         </div>
 
-        {/* Daily praise from Claude */}
-        <DailyPraiseCard />
-
-        {/* Weather */}
-        <WeatherCard />
-
         {/* Countdown + streak */}
-        <div className="grid grid-cols-2 gap-6 sm:gap-10 mb-8 stagger-in delay-3">
-          <div>
-            <div className="text-xs sm:text-sm uppercase tracking-[0.24em] john-muted mb-3">Days until Boston</div>
-            <div className="flex items-baseline gap-3">
-              <div className="display text-7xl sm:text-9xl font-medium leading-none number-glow tabular">{daysToGo}</div>
-              <div className="display text-xl sm:text-2xl italic john-muted">{daysToGo === 1 ? 'day' : 'days'}</div>
+        <div className="grid grid-cols-2 gap-6 sm:gap-10 mb-8 stagger-in delay-1">
+          <div className="p-5 sm:p-6 john-card">
+            <div className="text-xs uppercase tracking-[0.24em] john-muted mb-3">Days until Boston</div>
+            <div className="flex items-baseline gap-2">
+              <div className="display text-5xl sm:text-7xl font-medium leading-none number-glow tabular">{daysToGo}</div>
+              <div className="display text-lg sm:text-xl italic john-muted">{daysToGo === 1 ? 'day' : 'days'}</div>
             </div>
-            <div className="mt-2 text-xs john-muted tabular">{fmtLongDate(config.retreatDate)} · the mat meets the plane</div>
+            <div className="mt-2 text-xs john-muted tabular">May 2 · the mat meets the plane</div>
           </div>
-          <div className="text-right">
-            <div className="text-xs sm:text-sm uppercase tracking-[0.24em] john-muted mb-3">Streak</div>
-            <div className="flex items-baseline gap-3 justify-end">
-              <div className="display text-7xl sm:text-9xl font-medium leading-none john-accent number-glow tabular">{streak}</div>
-              <div className="display text-xl sm:text-2xl italic john-muted">{streak === 1 ? 'morning' : 'mornings'}</div>
+          <div className="p-5 sm:p-6 john-card text-right">
+            <div className="text-xs uppercase tracking-[0.24em] john-muted mb-3">Streak</div>
+            <div className="flex items-baseline gap-2 justify-end">
+              <div className="display text-5xl sm:text-7xl font-medium leading-none john-accent number-glow tabular">{streak}</div>
+              <div className="display text-lg sm:text-xl italic john-muted">{streak === 1 ? 'morning' : 'mornings'}</div>
             </div>
             <div className="mt-2 text-xs john-muted">
               {streak === 0 ? 'every chain starts at zero'
@@ -1072,30 +1067,22 @@ export default function App() {
           </div>
         </div>
 
-        {/* Progress bar */}
-        <div className="stagger-in delay-4 mb-10">
-          <div className="flex items-center justify-between text-xs uppercase tracking-[0.22em] john-muted mb-2 tabular">
-            <span>Day {elapsedDays} of {totalRunwayDays}</span>
-            <span>{progressPct}% elapsed</span>
-          </div>
-          <div className="progress-track">
-            <div className="progress-fill" style={{ width: `${progressPct}%` }} />
-          </div>
-        </div>
+        {/* Weather — compact row */}
+        <WeatherCard />
 
-        <div className="rule mb-10" />
+        <div className="rule mb-8" />
 
         {/* MORNING */}
-        <div className="mb-8 stagger-in delay-5">
-          <Eyebrow>Morning · {fmtLongDate(today)}</Eyebrow>
+        <div className="mb-8 stagger-in delay-3">
+          <Eyebrow>Morning · {shortDate}</Eyebrow>
           {todayIntention ? (
             <div className="p-6 john-card">
-              <div className="display text-xl sm:text-2xl mb-3">Intention: {todayIntention.mainIntention}</div>
+              <div className="display text-xl sm:text-2xl">Intention: {todayIntention.mainIntention}</div>
               {todayIntention.anticipatedUrge && (
                 <div className="mt-4">
                   <div className="rule mb-4" />
                   <div className="text-xs uppercase tracking-[0.18em] john-muted mb-1">You predicted the urge would be</div>
-                  <div className="text-lg italic">{todayIntention.anticipatedUrge}</div>
+                  <div className="text-lg italic">"{todayIntention.anticipatedUrge}"</div>
                 </div>
               )}
             </div>
@@ -1116,8 +1103,8 @@ export default function App() {
         </div>
 
         {/* EVENING */}
-        <div className="mb-8">
-          <Eyebrow>Evening reflection · {fmtLongDate(today)}</Eyebrow>
+        <div className="mb-8 stagger-in delay-4">
+          <Eyebrow>Evening reflection · {shortDate}</Eyebrow>
           {todayReflection ? (
             <div className="p-6 john-card">
               <div className="display text-xl sm:text-2xl mb-2">
@@ -1141,76 +1128,69 @@ export default function App() {
                 setUiEveningShowNote(false);
                 goTo('evening');
               }}
-              className="w-full p-6 border-2 border-dashed john-border hover-card rounded-card btn-lift text-left"
+              className="w-full p-6 john-card hover-card btn-lift text-left flex items-center justify-between"
             >
-              <div className="display text-xl sm:text-2xl mb-1">Log the day</div>
-              <div className="john-muted">One tap for the mat. The rest is optional. Under a minute.</div>
+              <div>
+                <div className="display text-xl sm:text-2xl mb-1">Log today</div>
+                <div className="john-muted">One tap. Under a minute.</div>
+              </div>
+              <div className="text-2xl john-accent">→</div>
             </button>
           )}
         </div>
 
         {/* RECIPE */}
-        <div className="mb-8">
+        <div className="mb-8 stagger-in delay-5">
           <Eyebrow>Your recipe</Eyebrow>
-          <div className="p-6 john-card">
-            <div className="display text-lg sm:text-xl leading-relaxed">
-              After I <span className="john-accent italic">{resolvedAnchor.toLowerCase()}</span>,
-              I will <span className="john-accent italic">{config.abilityText.toLowerCase().replace(/\.$/, '')}</span>,
-              and I will <span className="john-accent italic">{resolvedCelebration.toLowerCase()}</span>.
-            </div>
-            <div className="rule my-4" />
-            <div className="display text-base sm:text-lg italic john-muted">{resolvedIdentity}</div>
+          <div className="text-base sm:text-lg leading-relaxed mb-4">
+            After I <span className="italic">{resolvedAnchor.toLowerCase()}</span>,
+            I will <span className="italic">{config.abilityText.toLowerCase().replace(/\.$/, '')}</span>,
+            and I will <span className="italic">{resolvedCelebration.toLowerCase()}</span>.
           </div>
+          <div className="display text-base italic john-muted">{resolvedIdentity}</div>
         </div>
 
-        {/* 14-day strip */}
-        {reflections.length > 0 && (
-          <div className="mb-8">
-            <Eyebrow>The last two weeks</Eyebrow>
-            <div className="flex gap-1 mb-3">
-              {Array.from({ length: 14 }).map((_, i) => {
-                const d = new Date(today + 'T00:00:00');
-                d.setDate(d.getDate() - (13 - i));
-                const ds = d.toISOString().slice(0, 10);
-                const entry = reflections.find(l => l.date === ds);
-                let color = '#E8DDC8';
-                if (entry?.practiced) color = '#8B3A2F';
-                else if (entry && entry.practiced === false) color = '#C9BBA5';
-                return (
-                  <div key={ds}
-                    title={`${fmtDate(ds)}${entry ? (entry.practiced ? ' · practiced' : ' · missed') : ''}`}
-                    className="flex-1 h-10 smooth rounded-sm"
-                    style={{ backgroundColor: color }} />
-                );
-              })}
-            </div>
-            <div className="flex justify-between text-xs john-muted tabular">
-              <span>14 days ago</span>
-              <span>{practicedCount} / {reflections.length} logged mornings practiced</span>
-              <span>today</span>
-            </div>
-          </div>
-        )}
+        <div className="rule mb-8" />
 
-        {/* Insights */}
+        {/* WITH CLAUDE */}
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
-            <Eyebrow>Patterns · generated by Claude</Eyebrow>
+            <Eyebrow>With Claude</Eyebrow>
             <button
               onClick={generateInsight}
               disabled={insightLoading}
               className="text-xs uppercase tracking-[0.18em] john-accent smooth hover:text-black disabled:opacity-40"
             >
-              {insightLoading ? 'Reading your data…' : '+ Generate'}
+              {insightLoading ? 'Reading your data…' : '+ Generate pattern'}
             </button>
           </div>
-          {insights.length === 0 ? (
-            <div className="john-muted italic text-base">
-              Once you've logged a few days, Claude will look for one pattern you might not be seeing.
+
+          {/* Daily observation */}
+          {(praise || praiseLoading) && (
+            <div className="john-card p-5 sm:p-6 mb-4">
+              <div className="flex items-start gap-3">
+                <div className="flex-shrink-0 mt-0.5">
+                  <div className="avatar-dot avatar-dot-claude">C</div>
+                </div>
+                <div className="flex-1">
+                  {praiseLoading ? (
+                    <div className="flex items-center gap-1 py-1">
+                      <span className="w-1.5 h-1.5 rounded-full john-accent-bg pulse" />
+                      <span className="w-1.5 h-1.5 rounded-full john-accent-bg pulse" style={{ animationDelay: '0.2s' }} />
+                      <span className="w-1.5 h-1.5 rounded-full john-accent-bg pulse" style={{ animationDelay: '0.4s' }} />
+                    </div>
+                  ) : (
+                    <div className="text-base leading-relaxed italic">{praise?.text}</div>
+                  )}
+                </div>
+              </div>
             </div>
-          ) : (
-            <div className="space-y-3">
-              {[...insights].reverse().slice(0, 3).map(ins => (
+          )}
+
+          {/* Generated insights */}
+          {insights.length > 0 && (
+            <div className="space-y-3 mb-4">
+              {[...insights].reverse().slice(0, 2).map(ins => (
                 <div key={ins.id} className="p-5 john-card">
                   <div className="text-xs uppercase tracking-[0.18em] john-muted mb-2 tabular">{fmtDateTime(ins.timestamp)}</div>
                   <div className={`text-base leading-relaxed ${ins.error ? 'john-muted italic' : ''}`}>{ins.text}</div>
@@ -1218,45 +1198,33 @@ export default function App() {
               ))}
             </div>
           )}
-        </div>
 
-        {/* Companion teaser */}
-        <div className="mb-10">
-          <button
-            onClick={() => goTo('chat')}
-            className="w-full p-6 border john-border hover-card rounded-card btn-lift text-left"
-          >
-            <div className="flex justify-between items-start gap-4">
-              <div className="flex items-start gap-3">
-                <div className="avatar-dot avatar-dot-claude mt-1">C</div>
-                <div>
-                  <div className="text-xs uppercase tracking-[0.18em] john-accent mb-2">Companion</div>
-                  <div className="display text-xl sm:text-2xl">Ask Claude something</div>
-                  <div className="john-muted mt-1">
-                    {chatHistory.length === 0
-                      ? 'It has your clinical context, the books, and your logs.'
-                      : `${chatHistory.filter(m => m.role === 'user').length} conversation${chatHistory.filter(m => m.role === 'user').length === 1 ? '' : 's'} so far.`}
-                  </div>
-                </div>
-              </div>
-              <div className="text-2xl john-accent">→</div>
+          {insights.length === 0 && !praise && !praiseLoading && (
+            <div className="john-muted italic text-base mb-4">
+              Once you've logged a few days, Claude will look for one pattern you might not be seeing.
             </div>
-          </button>
+          )}
+
+          {/* Ask Claude link */}
+          <div className="flex items-center justify-between">
+            <div className="john-muted text-sm italic">Want to sit with this?</div>
+            <button
+              onClick={() => goTo('chat')}
+              className="text-xs uppercase tracking-[0.18em] john-accent smooth hover:text-black flex items-center gap-1"
+            >Ask Claude <span className="text-sm">→</span></button>
+          </div>
         </div>
 
-        {/* EVENLY-SPACED bottom buttons — grid with 3 equal columns */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-6 border-t john-border">
-          <button
-            onClick={() => goTo('cheatsheet')}
-            className="px-5 py-3 text-sm uppercase tracking-[0.18em] rounded-btn btn-lift border john-border john-ink hover-card hover:warm-shadow-md"
-          >When the urge hits</button>
+        {/* Bottom nav */}
+        <div className="rule mb-6" />
+        <div className="flex justify-center gap-6">
           <button
             onClick={() => goTo('timeline')}
-            className="px-5 py-3 text-sm uppercase tracking-[0.18em] rounded-btn btn-lift border john-border john-ink hover-card hover:warm-shadow-md"
+            className="px-5 py-3 text-sm uppercase tracking-[0.18em] rounded-btn btn-lift border john-border john-ink hover-card"
           >Timeline</button>
           <button
             onClick={() => goTo('welcome')}
-            className="px-5 py-3 text-sm uppercase tracking-[0.18em] rounded-btn btn-lift border john-border john-ink hover-card hover:warm-shadow-md"
+            className="px-5 py-3 text-sm uppercase tracking-[0.18em] rounded-btn btn-lift border john-border john-ink hover-card"
           >Revise recipe</button>
         </div>
       </Shell>
