@@ -252,7 +252,7 @@ export default function App() {
         {showNav && (
           <div className="mb-10 flex flex-wrap justify-between items-center text-xs uppercase tracking-[0.2em] john-muted gap-3 stagger-in">
             <button onClick={() => goTo('dashboard')} className="nav-link tabular">
-              Boston Runway · {fmtDate(today)}
+              John's Runway · {fmtDate(today)}
             </button>
             <div className="flex gap-5">
               <button onClick={() => goTo('chat')} className="nav-link">Companion</button>
@@ -411,7 +411,7 @@ export default function App() {
       <Shell>
         <Eyebrow>A runway, not a résumé</Eyebrow>
         <h1 className="display text-5xl sm:text-6xl leading-[1.05] mb-8 font-medium">
-          You already made the big choice.<br />
+          John, you already made the big choice.<br />
           <span className="john-accent italic">Now we build the mornings.</span>
         </h1>
         <div className="rule mb-8" />
@@ -748,7 +748,7 @@ export default function App() {
         {/* Date ornament */}
         <div className="stagger-in mb-6">
           <div className="ornament text-xs uppercase tracking-[0.3em] tabular">
-            <span>{dayOfWeek} · {fmtDate(today)}</span>
+            <span>John · {dayOfWeek} · {fmtDate(today)}</span>
           </div>
         </div>
 
