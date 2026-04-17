@@ -1036,14 +1036,17 @@ export default function App() {
         )}
 
         {/* Date ornament */}
-        <div className="stagger-in mb-8">
+        <div className="stagger-in mb-6">
           <div className="ornament text-xs uppercase tracking-[0.3em] tabular">
             <span>John · {dayOfWeek} · {fmtLongDate(today)}</span>
           </div>
         </div>
 
+        {/* Daily observation from Claude — first thing John sees */}
+        <DailyPraiseCard />
+
         {/* Countdown + streak */}
-        <div className="grid grid-cols-2 gap-6 sm:gap-10 mb-8 stagger-in delay-1">
+        <div className="grid grid-cols-2 gap-6 sm:gap-10 mb-8 stagger-in delay-2">
           <div className="p-5 sm:p-6 john-card">
             <div className="text-xs uppercase tracking-[0.24em] john-muted mb-3">Days until Boston</div>
             <div className="flex items-baseline gap-2">
@@ -1064,6 +1067,17 @@ export default function App() {
                 : streak < 7 ? 'chain is holding'
                 : 'you are the kind of person who does this now'}
             </div>
+          </div>
+        </div>
+
+        {/* Progress bar */}
+        <div className="stagger-in delay-3 mb-8">
+          <div className="flex items-center justify-between text-xs uppercase tracking-[0.22em] john-muted mb-2 tabular">
+            <span>Day {elapsedDays} of {totalRunwayDays}</span>
+            <span>{progressPct}% elapsed</span>
+          </div>
+          <div className="progress-track">
+            <div className="progress-fill" style={{ width: `${progressPct}%` }} />
           </div>
         </div>
 
@@ -1152,7 +1166,7 @@ export default function App() {
 
         <div className="rule mb-8" />
 
-        {/* WITH CLAUDE */}
+        {/* WITH CLAUDE — patterns */}
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
             <Eyebrow>With Claude</Eyebrow>
@@ -1164,32 +1178,8 @@ export default function App() {
               {insightLoading ? 'Reading your data…' : '+ Generate pattern'}
             </button>
           </div>
-
-          {/* Daily observation */}
-          {(praise || praiseLoading) && (
-            <div className="john-card p-5 sm:p-6 mb-4">
-              <div className="flex items-start gap-3">
-                <div className="flex-shrink-0 mt-0.5">
-                  <div className="avatar-dot avatar-dot-claude">C</div>
-                </div>
-                <div className="flex-1">
-                  {praiseLoading ? (
-                    <div className="flex items-center gap-1 py-1">
-                      <span className="w-1.5 h-1.5 rounded-full john-accent-bg pulse" />
-                      <span className="w-1.5 h-1.5 rounded-full john-accent-bg pulse" style={{ animationDelay: '0.2s' }} />
-                      <span className="w-1.5 h-1.5 rounded-full john-accent-bg pulse" style={{ animationDelay: '0.4s' }} />
-                    </div>
-                  ) : (
-                    <div className="text-base leading-relaxed italic">{praise?.text}</div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Generated insights */}
-          {insights.length > 0 && (
-            <div className="space-y-3 mb-4">
+          {insights.length > 0 ? (
+            <div className="space-y-3">
               {[...insights].reverse().slice(0, 2).map(ins => (
                 <div key={ins.id} className="p-5 john-card">
                   <div className="text-xs uppercase tracking-[0.18em] john-muted mb-2 tabular">{fmtDateTime(ins.timestamp)}</div>
@@ -1197,22 +1187,34 @@ export default function App() {
                 </div>
               ))}
             </div>
-          )}
-
-          {insights.length === 0 && !praise && !praiseLoading && (
-            <div className="john-muted italic text-base mb-4">
+          ) : (
+            <div className="john-muted italic text-base">
               Once you've logged a few days, Claude will look for one pattern you might not be seeing.
             </div>
           )}
+        </div>
 
-          {/* Ask Claude link */}
-          <div className="flex items-center justify-between">
-            <div className="john-muted text-sm italic">Want to sit with this?</div>
-            <button
-              onClick={() => goTo('chat')}
-              className="text-xs uppercase tracking-[0.18em] john-accent smooth hover:text-black flex items-center gap-1"
-            >Ask Claude <span className="text-sm">→</span></button>
-          </div>
+        {/* Companion — prominent, one-tap access */}
+        <div className="mb-10">
+          <button
+            onClick={() => goTo('chat')}
+            className="w-full p-6 john-card hover-card rounded-card btn-lift text-left"
+          >
+            <div className="flex justify-between items-center gap-4">
+              <div className="flex items-center gap-3">
+                <div className="avatar-dot avatar-dot-claude">C</div>
+                <div>
+                  <div className="display text-xl sm:text-2xl">Talk to the companion</div>
+                  <div className="john-muted text-sm mt-1">
+                    {chatHistory.length === 0
+                      ? 'Claude has your context, your recipe, and your logs.'
+                      : `${chatHistory.filter(m => m.role === 'user').length} conversation${chatHistory.filter(m => m.role === 'user').length === 1 ? '' : 's'} so far.`}
+                  </div>
+                </div>
+              </div>
+              <div className="text-2xl john-accent flex-shrink-0">→</div>
+            </div>
+          </button>
         </div>
 
         {/* Bottom nav */}
