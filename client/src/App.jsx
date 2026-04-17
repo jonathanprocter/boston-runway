@@ -76,7 +76,11 @@ export default function App() {
   // Dictation (speech-to-text) + conversational mode
   const [isListening, setIsListening] = useState(false);
   const [conversationalMode, setConversationalMode] = useState(false);
+  const conversationalRef = useRef(false); // non-stale ref for async reads
   const recognitionRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const hasSpeechAPI = typeof window !== 'undefined' && !!(window.SpeechRecognition || window.webkitSpeechRecognition);
 
   // Ephemeral drafts
   const [morningDraft, setMorningDraft] = useState({
@@ -207,8 +211,24 @@ export default function App() {
     }
   };
 
+  // ---------- iOS audio unlock ----------
+  // iOS Safari requires audio playback to be initiated from a user gesture.
+  // We unlock AudioContext on the first tap of conversational mode or listen button.
+  const ensureAudioUnlocked = () => {
+    if (audioContextRef.current) return;
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    // Play a silent buffer to unlock
+    const buf = ctx.createBuffer(1, 1, 22050);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(ctx.destination);
+    src.start(0);
+    audioContextRef.current = ctx;
+  };
+
   // ---------- voice playback (ElevenLabs) ----------
   const playVoice = async (text, msgIndex) => {
+    ensureAudioUnlocked();
     // If already playing this message, stop
     if (playingVoice === msgIndex && audioRef.current) {
       audioRef.current.pause();
@@ -236,11 +256,22 @@ export default function App() {
     }
   };
 
-  // ---------- dictation (speech-to-text) ----------
-  const startListening = () => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) { console.warn('Speech recognition not supported'); return; }
+  // Play audio from blob, returns a promise that resolves when playback ends
+  const playAudioBlob = (blob) => new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    audioRef.current = audio;
+    audio.onended = () => { audioRef.current = null; URL.revokeObjectURL(url); resolve(); };
+    audio.onerror = (e) => { audioRef.current = null; URL.revokeObjectURL(url); reject(e); };
+    audio.play().catch(reject);
+  });
 
+  // ---------- dictation (speech-to-text) ----------
+  // Strategy: Use Web Speech API where available (Chrome, Android).
+  // On iOS Safari (no SpeechRecognition), fall back to MediaRecorder + server-side STT.
+
+  const startListeningWebSpeech = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (recognitionRef.current) { recognitionRef.current.stop(); }
 
     const recognition = new SpeechRecognition();
@@ -249,6 +280,8 @@ export default function App() {
     recognition.continuous = true;
     recognition.maxAlternatives = 1;
 
+    // Capture existing text so dictation appends
+    const prefix = chatInput;
     let finalTranscript = '';
 
     recognition.onresult = (e) => {
@@ -260,14 +293,10 @@ export default function App() {
           interim += e.results[i][0].transcript;
         }
       }
-      setChatInput(finalTranscript + interim);
+      setChatInput(prefix + finalTranscript + interim);
     };
 
-    recognition.onend = () => {
-      setIsListening(false);
-      recognitionRef.current = null;
-    };
-
+    recognition.onend = () => { setIsListening(false); recognitionRef.current = null; };
     recognition.onerror = (e) => {
       if (e.error !== 'no-speech') console.warn('Speech error:', e.error);
       setIsListening(false);
@@ -279,12 +308,56 @@ export default function App() {
     setIsListening(true);
   };
 
+  const startListeningMediaRecorder = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Prefer mp4 on Safari, webm elsewhere
+      const mimeType = MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4'
+        : MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus'
+        : 'audio/webm';
+      const recorder = new MediaRecorder(stream, { mimeType });
+      const chunks = [];
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        mediaRecorderRef.current = null;
+        setIsListening(false);
+        if (!chunks.length) return;
+        const blob = new Blob(chunks, { type: mimeType });
+        // Show transcribing state
+        setChatInput(prev => prev + ' (transcribing...)');
+        try {
+          const result = await api.stt(blob);
+          setChatInput(prev => prev.replace(' (transcribing...)', '') + (result.text || ''));
+        } catch (e) {
+          console.warn('STT failed:', e);
+          setChatInput(prev => prev.replace(' (transcribing...)', ''));
+        }
+      };
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      setIsListening(true);
+    } catch (e) {
+      console.warn('Microphone access denied:', e);
+    }
+  };
+
+  const startListening = () => {
+    ensureAudioUnlocked();
+    if (hasSpeechAPI) startListeningWebSpeech();
+    else startListeningMediaRecorder();
+  };
+
   const stopListening = () => {
     if (recognitionRef.current) {
       recognitionRef.current.stop();
       recognitionRef.current = null;
     }
-    setIsListening(false);
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.stop(); // triggers onstop → transcription
+    } else {
+      setIsListening(false);
+    }
   };
 
   const toggleListening = () => {
@@ -307,24 +380,18 @@ export default function App() {
         const withoutLast = prev.slice(0, -1);
         return [...withoutLast, result.user, result.assistant];
       });
-      // Auto-speak Claude's reply in conversational mode
-      if (conversationalMode && result.assistant?.content) {
+      // Auto-speak Claude's reply in conversational mode (use ref for non-stale read)
+      if (conversationalRef.current && result.assistant?.content) {
         try {
           const blob = await api.tts(result.assistant.content);
-          const url = URL.createObjectURL(blob);
-          const audio = new Audio(url);
-          audioRef.current = audio;
           setPlayingVoice('auto');
-          audio.onended = () => {
-            setPlayingVoice(null);
-            audioRef.current = null;
-            URL.revokeObjectURL(url);
-            // Re-start listening after Claude finishes speaking
-            startListening();
-          };
-          audio.onerror = () => { setPlayingVoice(null); audioRef.current = null; URL.revokeObjectURL(url); };
-          await audio.play();
-        } catch { /* TTS failed — no auto-speak */ }
+          await playAudioBlob(blob);
+          setPlayingVoice(null);
+          // Re-start listening after Claude finishes speaking
+          if (conversationalRef.current) startListening();
+        } catch {
+          setPlayingVoice(null);
+        }
       }
     } catch (err) {
       setChatHistory(prev => [...prev, {
@@ -1663,8 +1730,10 @@ export default function App() {
           <div className="flex justify-center mb-2">
             <button
               onClick={() => {
+                ensureAudioUnlocked();
                 const next = !conversationalMode;
                 setConversationalMode(next);
+                conversationalRef.current = next;
                 if (!next) stopListening();
               }}
               className={`text-[10px] uppercase tracking-[0.22em] px-4 py-1.5 rounded-chip border smooth ${
@@ -1677,8 +1746,8 @@ export default function App() {
             </button>
           </div>
           <div className="companion-input p-2 flex items-end gap-2">
-            {/* Mic button */}
-            {(window.SpeechRecognition || window.webkitSpeechRecognition) && (
+            {/* Mic button — Web Speech API on Chrome/Android, MediaRecorder+STT on iOS */}
+            {(hasSpeechAPI || navigator.mediaDevices) && (
               <button
                 onClick={toggleListening}
                 className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center smooth ${

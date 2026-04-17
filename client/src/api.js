@@ -108,6 +108,21 @@ export const api = {
   getVapidKey: () => req('GET', '/push/vapid-key'),
   subscribePush: (subscription) => req('POST', '/push/subscribe', subscription),
 
+  // ElevenLabs Speech-to-Text — sends audio blob, returns { text }
+  stt: async (audioBlob) => {
+    const r = await fetch(BASE + '/stt', {
+      method: 'POST',
+      headers: { 'Content-Type': audioBlob.type || 'audio/webm' },
+      body: audioBlob,
+    });
+    if (!r.ok) {
+      let errText = `HTTP ${r.status}`;
+      try { const j = await r.json(); errText = j.error || errText; } catch {}
+      throw new Error(errText);
+    }
+    return r.json();
+  },
+
   // ElevenLabs TTS — returns audio blob
   tts: async (text) => {
     const r = await fetch(BASE + '/tts', {

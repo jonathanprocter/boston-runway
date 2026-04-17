@@ -248,7 +248,11 @@ async function callClaude(messages, systemPrompt, maxTokens = 900) {
 // ============================================================
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: '1mb' }));
+// Skip JSON body parsing for /api/stt (receives raw audio)
+app.use((req, res, next) => {
+  if (req.path === '/api/stt') return next();
+  express.json({ limit: '1mb' })(req, res, next);
+});
 
 // ----- Bootstrap endpoint: returns everything in one call -----
 app.get('/api/bootstrap', async (req, res) => {
@@ -522,6 +526,50 @@ app.post('/api/push/test', async (req, res) => {
     }
     res.json({ sent, failed });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ----- ElevenLabs Speech-to-Text (for iOS fallback) -----
+app.post('/api/stt', async (req, res) => {
+  try {
+    if (!ELEVENLABS_API_KEY) return res.status(503).json({ error: 'ElevenLabs not configured' });
+
+    // Expect raw audio body (webm or mp4 from MediaRecorder)
+    const contentType = req.headers['content-type'] || 'audio/webm';
+    const chunks = [];
+    for await (const chunk of req) { chunks.push(chunk); }
+    const audioBuffer = Buffer.concat(chunks);
+
+    if (!audioBuffer.length) return res.status(400).json({ error: 'empty audio' });
+
+    // ElevenLabs Speech-to-Text API
+    const boundary = '----FormBoundary' + randomUUID().replace(/-/g, '');
+    const ext = contentType.includes('mp4') ? 'mp4' : 'webm';
+    const body = Buffer.concat([
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="audio.${ext}"\r\nContent-Type: ${contentType}\r\n\r\n`),
+      audioBuffer,
+      Buffer.from(`\r\n--${boundary}\r\nContent-Disposition: form-data; name="model_id"\r\n\r\nscribe_v1\r\n--${boundary}--\r\n`),
+    ]);
+
+    const r = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
+      method: 'POST',
+      headers: {
+        'xi-api-key': ELEVENLABS_API_KEY,
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+      },
+      body,
+    });
+
+    if (!r.ok) {
+      const err = await r.text();
+      throw new Error(`ElevenLabs STT ${r.status}: ${err}`);
+    }
+
+    const data = await r.json();
+    res.json({ text: data.text || '' });
+  } catch (e) {
+    console.error('STT error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ----- ElevenLabs TTS proxy -----
