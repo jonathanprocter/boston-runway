@@ -1092,8 +1092,9 @@ export default function App() {
             <div className="p-6 john-card">
               <div className="display text-xl sm:text-2xl mb-3">Intention: {todayIntention.mainIntention}</div>
               {todayIntention.anticipatedUrge && (
-                <div className="mt-4 pt-4 rule">
-                  <div className="text-xs uppercase tracking-[0.18em] john-muted mb-1 pt-3">You predicted the urge would be</div>
+                <div className="mt-4">
+                  <div className="rule mb-4" />
+                  <div className="text-xs uppercase tracking-[0.18em] john-muted mb-1">You predicted the urge would be</div>
                   <div className="text-lg italic">{todayIntention.anticipatedUrge}</div>
                 </div>
               )}
