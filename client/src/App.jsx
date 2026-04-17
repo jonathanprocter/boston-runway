@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { api, fmtDate, fmtDateTime } from './api';
+import { api, fmtDate, fmtLongDate, fmtDateTime } from './api';
 
 // Default location: Long Beach, NY (John's area)
 const DEFAULT_LOCATION = { lat: 40.588, lon: -73.663, name: 'Long Beach, NY' };
@@ -76,6 +76,7 @@ export default function App() {
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const [insightLoading, setInsightLoading] = useState(false);
+  const [offline, setOffline] = useState(false);
   const chatEndRef = useRef(null);
 
   // UI toggles for collapsible sections in morning/evening
@@ -87,37 +88,41 @@ export default function App() {
   const [uiEveningShowNote, setUiEveningShowNote] = useState(false);
 
   // ---------- init ----------
-  useEffect(() => {
-    (async () => {
-      try {
-        const boot = await api.bootstrap();
-        setEvents(boot.events || []);
-        setIntentions((boot.intentions || []).map(i => ({ ...i.data, date: i.date })));
-        setReflections((boot.reflections || []).map(r => ({ ...r.data, date: r.date })));
-        setChatHistory(boot.chatHistory || []);
-        setInsights(boot.insights || []);
-        if (boot.config) {
-          setConfig({ ...boot.config });
-          await api.logEvent('app_opened');
-          setPhase('dashboard');
-          // Fetch weather + praise in parallel after setting dashboard phase
+  const doBootstrap = async () => {
+    setPhase('loading');
+    setLoadError(null);
+    setOffline(false);
+    try {
+      const boot = await api.bootstrap();
+      if (boot._offline) setOffline(true);
+      setEvents(boot.events || []);
+      setIntentions((boot.intentions || []).map(i => ({ ...i.data, date: i.date })));
+      setReflections((boot.reflections || []).map(r => ({ ...r.data, date: r.date })));
+      setChatHistory(boot.chatHistory || []);
+      setInsights(boot.insights || []);
+      if (boot.config) {
+        setConfig({ ...boot.config });
+        api.logEvent('app_opened');
+        setPhase('dashboard');
+        if (!boot._offline) {
           const loc = boot.config.location || DEFAULT_LOCATION;
           api.weather(loc.lat, loc.lon).then(setWeather).catch(() => {});
           setPraiseLoading(true);
           api.dailyPraise()
             .then(p => { setPraise(p); setPraiseLoading(false); })
             .catch(() => { setPraiseLoading(false); });
-        } else {
-          setPhase('welcome');
         }
-      } catch (e) {
-        console.error('Bootstrap failed:', e);
-        setLoadError(e.message);
-        setPhase('error');
+      } else {
+        setPhase('welcome');
       }
-    })();
-    // eslint-disable-next-line
-  }, []);
+    } catch (e) {
+      console.error('Bootstrap failed:', e);
+      setLoadError(e.message);
+      setPhase('error');
+    }
+  };
+
+  useEffect(() => { doBootstrap(); }, []);
 
   // Scroll chat to bottom on new message
   useEffect(() => {
@@ -169,6 +174,7 @@ export default function App() {
       mainIntention: morningDraft.mainIntention,
       anticipatedUrge: morningDraft.anticipatedUrge,
       mood: morningDraft.mood,
+      badSleep: morningDraft.badSleep || false,
     };
     await api.saveIntention(today, entry);
     const next = intentions.filter(i => i.date !== today).concat([{ ...entry, date: today }]);
@@ -397,8 +403,18 @@ export default function App() {
     return (
       <Shell>
         <h1 className="display text-3xl mb-4">Couldn't reach the server</h1>
-        <p className="john-muted mb-4">{loadError}</p>
-        <p className="john-muted text-sm">Check the server logs or try refreshing the page.</p>
+        <p className="john-muted mb-6">{loadError}</p>
+        <BigButton onClick={doBootstrap}>Retry</BigButton>
+        {resolvedAnchor && (
+          <div className="mt-8 p-6 john-card">
+            <div className="text-sm uppercase tracking-[0.18em] john-muted mb-2">Your recipe hasn't moved</div>
+            <div className="display text-xl leading-snug">
+              After I <span className="john-accent italic">{resolvedAnchor.toLowerCase()}</span>,
+              I will <span className="john-accent italic">{config.abilityText.toLowerCase().replace(/\.$/, '')}</span>,
+              and I will <span className="john-accent italic">{resolvedCelebration.toLowerCase()}</span>.
+            </div>
+          </div>
+        )}
       </Shell>
     );
   }
@@ -439,7 +455,7 @@ export default function App() {
       <Shell>
         <Eyebrow>Step 1 of 6 · An honest question</Eyebrow>
         <h1 className="display text-4xl sm:text-5xl leading-[1.1] mb-8 font-medium">
-          Between April 7th and today, how many mornings did the mat come out?
+          Between April 7, 2026 and {fmtLongDate(today)}, how many mornings did the mat come out?
         </h1>
         <div className="space-y-3 mb-10 max-w-xl">
           {[
@@ -578,6 +594,8 @@ export default function App() {
       'Rob leaves the room',
       'I take my morning pills',
       'I put my feet on the floor getting out of bed',
+      'I get back from walking the dogs (home)',
+      'I get back from walking the dogs (Rob\'s office)',
     ];
     return (
       <Shell>
@@ -612,6 +630,18 @@ export default function App() {
             </div>
           </div>
         )}
+        <div className="mt-6 p-5 john-card">
+          <div className="text-sm uppercase tracking-[0.18em] john-muted mb-2">Friction cutter</div>
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input type="checkbox" checked={config.stageMatTonight || false}
+              onChange={e => update({ stageMatTonight: e.target.checked })}
+              className="mt-1 w-5 h-5 accent-[#8B3A2F]" />
+            <div>
+              <div className="text-lg">Stage the mat tonight</div>
+              <div className="text-sm john-muted">Put it out before bed so the morning decision is already half-made.</div>
+            </div>
+          </label>
+        </div>
         <div className="flex gap-3 mt-8">
           <BigButton variant="ghost" onClick={() => goTo('ability')}>← Back</BigButton>
           <BigButton onClick={() => goTo('celebration')} disabled={!resolvedAnchor || (config.anchor === 'custom' && !config.customAnchor)}>Continue →</BigButton>
@@ -628,6 +658,8 @@ export default function App() {
       'Snap my fingers twice',
       'Whisper "good boy" to myself (I\'m not kidding, it works)',
       'Hum eight bars of something dramatic',
+      'Quiet mark — check it off and note the evidence',
+      'Text Rob or Jonathan: "mat came out"',
     ];
     return (
       <Shell>
@@ -745,10 +777,18 @@ export default function App() {
     const dayOfWeek = new Date(today + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long' });
     return (
       <Shell showNav>
+        {/* Offline banner */}
+        {offline && (
+          <div className="mb-4 p-3 border john-border rounded-card text-sm john-muted flex items-center justify-between fade-in">
+            <span>Offline — showing cached data. Your recipe is still here.</span>
+            <button onClick={doBootstrap} className="ml-3 john-accent font-medium uppercase tracking-wider text-xs">Retry</button>
+          </div>
+        )}
+
         {/* Date ornament */}
         <div className="stagger-in mb-6">
           <div className="ornament text-xs uppercase tracking-[0.3em] tabular">
-            <span>John · {dayOfWeek} · {fmtDate(today)}</span>
+            <span>John · {dayOfWeek} · {fmtLongDate(today)}</span>
           </div>
         </div>
 
@@ -766,7 +806,7 @@ export default function App() {
               <div className="display text-7xl sm:text-9xl font-medium leading-none number-glow tabular">{daysToGo}</div>
               <div className="display text-xl sm:text-2xl italic john-muted">{daysToGo === 1 ? 'day' : 'days'}</div>
             </div>
-            <div className="mt-2 text-xs john-muted tabular">{fmtDate(config.retreatDate)} · the mat meets the plane</div>
+            <div className="mt-2 text-xs john-muted tabular">{fmtLongDate(config.retreatDate)} · the mat meets the plane</div>
           </div>
           <div className="text-right">
             <div className="text-xs sm:text-sm uppercase tracking-[0.24em] john-muted mb-3">Streak</div>
@@ -798,7 +838,7 @@ export default function App() {
 
         {/* MORNING */}
         <div className="mb-8 stagger-in delay-5">
-          <Eyebrow>Morning · {fmtDate(today)}</Eyebrow>
+          <Eyebrow>Morning · {fmtLongDate(today)}</Eyebrow>
           {todayIntention ? (
             <div className="p-6 john-card">
               <div className="display text-xl sm:text-2xl mb-3">Intention: {todayIntention.mainIntention}</div>
@@ -827,7 +867,7 @@ export default function App() {
 
         {/* EVENING */}
         <div className="mb-8">
-          <Eyebrow>Evening reflection</Eyebrow>
+          <Eyebrow>Evening reflection · {fmtLongDate(today)}</Eyebrow>
           {todayReflection ? (
             <div className="p-6 john-card">
               <div className="display text-xl sm:text-2xl mb-2">
@@ -978,14 +1018,15 @@ export default function App() {
   // ============================================================
   if (phase === 'morning') {
     const moods = ['heavy','low','meh','steady','up','on','lit'];
+    const anchorShort = resolvedAnchor ? resolvedAnchor.toLowerCase().replace(/^i /, '') : 'the anchor';
     const intentionStarters = [
       "The mat. That's the deal.",
-      'Sending the hard message',
+      `After I ${anchorShort}, the mat comes out`,
       'Showing up cleanly',
-      'The hard conversation',
       'One clean morning',
       'Not negotiating with myself',
       'Just being in my body today',
+      'Sending the hard message',
     ];
     const urgeStarters = [
       "I'm too tired",
@@ -995,13 +1036,15 @@ export default function App() {
       "Just this once won't matter",
       "I need coffee first",
       "Not feeling it",
+      "Bad sleep — body says no",
     ];
+    const isTired = morningDraft.mood <= 2;
     const intentionIsCustom = morningDraft.mainIntention && !intentionStarters.includes(morningDraft.mainIntention);
     const urgeIsCustom = morningDraft.anticipatedUrge && !urgeStarters.includes(morningDraft.anticipatedUrge);
 
     return (
       <Shell>
-        <Eyebrow>This morning · {fmtDate(today)}</Eyebrow>
+        <Eyebrow>This morning · {fmtLongDate(today)}</Eyebrow>
         <h1 className="display text-4xl sm:text-5xl leading-[1.1] mb-2 font-medium">Three taps.</h1>
         <p className="john-muted text-lg mb-10">Fifteen seconds. Then your day starts.</p>
 
@@ -1083,6 +1126,29 @@ export default function App() {
           </div>
         </div>
 
+        {/* Tiredness fallback */}
+        {isTired && (
+          <div className="mb-10 p-5 john-card border-l-4 fade-in" style={{ borderLeftColor: '#8B3A2F' }}>
+            <div className="display text-lg mb-1">Bad sleep or exhausted?</div>
+            <div className="text-sm john-muted mb-3">
+              The contract downgrades automatically. Today's version: <span className="john-accent italic">unroll the mat and sit on it.</span> That's it. Anything more is extra credit. Tag this so your insights know it's not willpower — it's biology.
+            </div>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={morningDraft.badSleep || false}
+                onChange={e => setMorningDraft({ ...morningDraft, badSleep: e.target.checked })}
+                className="w-4 h-4 accent-[#8B3A2F]" />
+              <span className="text-sm">Tag: bad sleep / exhausted</span>
+            </label>
+          </div>
+        )}
+
+        {/* Stage mat reminder */}
+        {config.stageMatTonight && (
+          <div className="mb-10 p-4 john-card text-sm john-muted fade-in">
+            Reminder: stage the mat tonight before bed.
+          </div>
+        )}
+
         <div className="flex gap-3">
           <BigButton variant="ghost" onClick={() => goTo('dashboard')}>Cancel</BigButton>
           <BigButton onClick={saveMorning} disabled={!morningDraft.mainIntention}>Save →</BigButton>
@@ -1106,7 +1172,7 @@ export default function App() {
 
     return (
       <Shell>
-        <Eyebrow>Tonight · {fmtDate(today)}</Eyebrow>
+        <Eyebrow>Tonight · {fmtLongDate(today)}</Eyebrow>
         <h1 className="display text-4xl sm:text-5xl leading-[1.1] mb-2 font-medium">The day in under a minute.</h1>
         <p className="john-muted text-lg mb-10">One tap for the mat. The rest is optional.</p>
 

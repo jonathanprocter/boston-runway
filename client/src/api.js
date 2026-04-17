@@ -1,10 +1,46 @@
 // ============================================================
 // API client — all backend communication lives here.
-// Replaces the window.storage calls from v2.
+// Includes offline cache + best-effort event queue.
 // ============================================================
 
 const BASE = '/api';
+const CACHE_KEY = 'boston-runway-cache';
+const EVENT_QUEUE_KEY = 'boston-runway-event-queue';
 
+// ─── LocalStorage helpers ──────────────────────────────────
+function cacheGet() {
+  try { return JSON.parse(localStorage.getItem(CACHE_KEY)); } catch { return null; }
+}
+function cacheSet(data) {
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify(data)); } catch {}
+}
+function queueGet() {
+  try { return JSON.parse(localStorage.getItem(EVENT_QUEUE_KEY)) || []; } catch { return []; }
+}
+function queueSet(q) {
+  try { localStorage.setItem(EVENT_QUEUE_KEY, JSON.stringify(q)); } catch {}
+}
+
+// ─── Flush queued events (best-effort) ─────────────────────
+async function flushEventQueue() {
+  const q = queueGet();
+  if (!q.length) return;
+  const remaining = [];
+  for (const evt of q) {
+    try {
+      await fetch(BASE + '/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(evt),
+      });
+    } catch {
+      remaining.push(evt);
+    }
+  }
+  queueSet(remaining);
+}
+
+// ─── Core request helper ───────────────────────────────────
 async function req(method, path, body) {
   const opts = { method, headers: {} };
   if (body !== undefined) {
@@ -21,11 +57,38 @@ async function req(method, path, body) {
 }
 
 export const api = {
-  bootstrap: () => req('GET', '/bootstrap'),
+  bootstrap: async () => {
+    try {
+      const data = await req('GET', '/bootstrap');
+      cacheSet(data);
+      // Also flush any queued events now that we're online
+      flushEventQueue().catch(() => {});
+      return data;
+    } catch (err) {
+      const cached = cacheGet();
+      if (cached) {
+        cached._offline = true;
+        return cached;
+      }
+      throw err;
+    }
+  },
 
   saveConfig: (config) => req('POST', '/config', config),
 
-  logEvent: (type, data = {}) => req('POST', '/events', { type, data }),
+  logEvent: (type, data = {}) => {
+    const evt = { type, data };
+    // Best-effort: fire and forget, queue on failure
+    return fetch(BASE + '/events', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(evt),
+    }).catch(() => {
+      const q = queueGet();
+      q.push(evt);
+      queueSet(q);
+    });
+  },
 
   saveIntention: (date, data) => req('POST', '/intentions', { date, data }),
 
@@ -47,6 +110,12 @@ export const fmtDate = (iso) => {
   if (!iso) return '';
   const [y, m, d] = iso.slice(0, 10).split('-');
   return `${m}-${d}-${y}`;
+};
+
+export const fmtLongDate = (iso) => {
+  if (!iso) return '';
+  const dt = new Date(iso + 'T00:00:00');
+  return dt.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 };
 
 export const fmtDateTime = (iso) => {
