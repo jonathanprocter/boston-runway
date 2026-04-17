@@ -18,6 +18,14 @@ services:
         sync: false  # set manually in Render dashboard (secret)
       - key: ANTHROPIC_MODEL
         value: claude-opus-4-7
+      - key: ELEVENLABS_API_KEY
+        sync: false  # set manually in Render dashboard (secret)
+      - key: ELEVENLABS_VOICE_ID
+        value: pNInz6obpgDQGcFmaJgB
+      - key: VAPID_PUBLIC_KEY
+        value: BPi4Q1LUPjwCIJpaGwY2ZX0YdObrtZ-pnUzJllL_LSzuzxnq6Pk4L1NitXyeB_nVWifBocN5_eHqSvdP1YNEEqQ
+      - key: VAPID_PRIVATE_KEY
+        sync: false  # set manually in Render dashboard (secret)
       - key: DATABASE_URL
         fromDatabase:
           name: boston-runway-db

@@ -103,6 +103,25 @@ export const api = {
   weather: (lat, lon) => req('GET', `/weather?lat=${lat}&lon=${lon}`),
 
   dailyPraise: () => req('GET', '/daily-praise'),
+
+  // Push notifications
+  getVapidKey: () => req('GET', '/push/vapid-key'),
+  subscribePush: (subscription) => req('POST', '/push/subscribe', subscription),
+
+  // ElevenLabs TTS — returns audio blob
+  tts: async (text) => {
+    const r = await fetch(BASE + '/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    if (!r.ok) {
+      let errText = `HTTP ${r.status}`;
+      try { const j = await r.json(); errText = j.error || errText; } catch {}
+      throw new Error(errText);
+    }
+    return r.blob();
+  },
 };
 
 // Date formatting helpers

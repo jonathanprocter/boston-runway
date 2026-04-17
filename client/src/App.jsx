@@ -66,6 +66,13 @@ export default function App() {
   const [praise, setPraise] = useState(null);
   const [praiseLoading, setPraiseLoading] = useState(false);
 
+  // Voice playback
+  const [playingVoice, setPlayingVoice] = useState(null); // index of message being spoken
+  const audioRef = useRef(null);
+
+  // Push notification state
+  const [pushEnabled, setPushEnabled] = useState(false);
+
   // Ephemeral drafts
   const [morningDraft, setMorningDraft] = useState({
     mainIntention: '', anticipatedUrge: '', mood: 4,
@@ -105,12 +112,14 @@ export default function App() {
         api.logEvent('app_opened');
         setPhase('dashboard');
         if (!boot._offline) {
-          const loc = boot.config.location || DEFAULT_LOCATION;
-          api.weather(loc.lat, loc.lon).then(setWeather).catch(() => {});
+          // Attempt geolocation — prompt iPhone for location access
+          requestLocation(boot.config);
           setPraiseLoading(true);
           api.dailyPraise()
             .then(p => { setPraise(p); setPraiseLoading(false); })
             .catch(() => { setPraiseLoading(false); });
+          // Set up push notifications
+          setupPushNotifications();
         }
       } else {
         setPhase('welcome');
@@ -130,6 +139,97 @@ export default function App() {
       chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [chatHistory, phase, chatLoading]);
+
+  // ---------- geolocation ----------
+  const requestLocation = (cfg) => {
+    if (!navigator.geolocation) {
+      // No geolocation API — use default
+      const loc = cfg?.location || DEFAULT_LOCATION;
+      api.weather(loc.lat, loc.lon).then(setWeather).catch(() => {});
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const loc = { lat: pos.coords.latitude, lon: pos.coords.longitude, name: 'Current location' };
+        // Reverse geocode city name via Open-Meteo timezone endpoint
+        fetch(`https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}&current=temperature_2m&timezone=auto&forecast_days=1`)
+          .then(r => r.json())
+          .then(d => { if (d.timezone) loc.name = d.timezone.split('/').pop().replace(/_/g, ' '); })
+          .catch(() => {})
+          .finally(() => {
+            setConfig(prev => ({ ...prev, location: loc }));
+            api.saveConfig({ ...cfg, location: loc }).catch(() => {});
+            api.weather(loc.lat, loc.lon).then(setWeather).catch(() => {});
+          });
+      },
+      () => {
+        // Denied or error — use saved or default location
+        const loc = cfg?.location || DEFAULT_LOCATION;
+        api.weather(loc.lat, loc.lon).then(setWeather).catch(() => {});
+      },
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 }
+    );
+  };
+
+  // ---------- push notifications ----------
+  const setupPushNotifications = async () => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const existing = await reg.pushManager.getSubscription();
+      if (existing) { setPushEnabled(true); return; }
+
+      // Request permission
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') return;
+
+      // Get VAPID key from server
+      const { publicKey } = await api.getVapidKey();
+      const applicationServerKey = Uint8Array.from(
+        atob(publicKey.replace(/-/g, '+').replace(/_/g, '/')),
+        c => c.charCodeAt(0)
+      );
+
+      const subscription = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey,
+      });
+
+      await api.subscribePush(subscription.toJSON());
+      setPushEnabled(true);
+    } catch (e) {
+      console.warn('Push setup failed:', e);
+    }
+  };
+
+  // ---------- voice playback (ElevenLabs) ----------
+  const playVoice = async (text, msgIndex) => {
+    // If already playing this message, stop
+    if (playingVoice === msgIndex && audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+      setPlayingVoice(null);
+      return;
+    }
+    // Stop any currently playing audio
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    setPlayingVoice(msgIndex);
+    try {
+      const blob = await api.tts(text);
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.onended = () => { setPlayingVoice(null); audioRef.current = null; URL.revokeObjectURL(url); };
+      audio.onerror = () => { setPlayingVoice(null); audioRef.current = null; URL.revokeObjectURL(url); };
+      await audio.play();
+    } catch (e) {
+      console.warn('Voice playback failed:', e);
+      setPlayingVoice(null);
+    }
+  };
 
   // ---------- derived ----------
   const today = new Date().toISOString().slice(0, 10);
@@ -1431,8 +1531,23 @@ export default function App() {
                   msg.error ? 'border john-border john-muted italic rounded-xl' : 'companion-bubble-claude'
                 }`}>
                   <div className="text-base leading-relaxed whitespace-pre-wrap">{msg.content}</div>
-                  <div className={`text-[10px] uppercase tracking-[0.18em] mt-2 ${msg.role === 'user' ? 'text-white opacity-70' : 'john-muted'} tabular`}>
-                    {new Date(msg.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                  <div className={`flex items-center gap-3 mt-2 ${msg.role === 'user' ? 'text-white opacity-70' : 'john-muted'}`}>
+                    <span className="text-[10px] uppercase tracking-[0.18em] tabular">
+                      {new Date(msg.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                    </span>
+                    {msg.role === 'assistant' && !msg.error && (
+                      <button
+                        onClick={() => playVoice(msg.content, idx)}
+                        className="text-[10px] uppercase tracking-[0.18em] smooth hover:text-black flex items-center gap-1"
+                        title={playingVoice === idx ? 'Stop' : 'Listen'}
+                      >
+                        {playingVoice === idx ? (
+                          <><span style={{ fontSize: 12 }}>&#9632;</span> stop</>
+                        ) : (
+                          <><span style={{ fontSize: 12 }}>&#9654;</span> listen</>
+                        )}
+                      </button>
+                    )}
                   </div>
                 </div>
                 {msg.role === 'user' && (

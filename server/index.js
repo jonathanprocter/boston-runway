@@ -9,6 +9,7 @@ import pg from 'pg';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
+import webpush from 'web-push';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,9 +18,23 @@ const PORT = process.env.PORT || 3001;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || 'claude-opus-4-7';
 const DATABASE_URL = process.env.DATABASE_URL;
+const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
+const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || 'pNInz6obpgDQGcFmaJgB'; // "Adam" default
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
+const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:jonathan@jonathanprocter.com';
 
 if (!ANTHROPIC_API_KEY) console.warn('⚠️  ANTHROPIC_API_KEY not set — Claude features will fail');
 if (!DATABASE_URL) console.warn('⚠️  DATABASE_URL not set — using local fallback');
+if (!ELEVENLABS_API_KEY) console.warn('⚠️  ELEVENLABS_API_KEY not set — voice features will fail');
+
+// ----- Web Push setup -----
+if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
+  webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+  console.log('✅ VAPID keys configured for push notifications');
+} else {
+  console.warn('⚠️  VAPID keys not set — push notifications disabled');
+}
 
 // ----- Postgres setup -----
 const pool = new pg.Pool({
@@ -67,6 +82,11 @@ async function initDb() {
       date TEXT PRIMARY KEY,
       text TEXT NOT NULL,
       generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      id TEXT PRIMARY KEY,
+      subscription JSONB NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
   console.log('✅ Database initialized');
@@ -457,6 +477,92 @@ Keep it to ONE sentence. Present tense or simple past. No question marks. No exc
     res.json({ text, cached: false });
   } catch (e) {
     console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ----- Push Notifications -----
+app.get('/api/push/vapid-key', (req, res) => {
+  if (!VAPID_PUBLIC_KEY) return res.status(503).json({ error: 'Push not configured' });
+  res.json({ publicKey: VAPID_PUBLIC_KEY });
+});
+
+app.post('/api/push/subscribe', async (req, res) => {
+  try {
+    const subscription = req.body;
+    if (!subscription?.endpoint) return res.status(400).json({ error: 'Invalid subscription' });
+    const id = randomUUID();
+    await pool.query(
+      `INSERT INTO push_subscriptions (id, subscription, created_at) VALUES ($1, $2, NOW())`,
+      [id, subscription]
+    );
+    res.json({ ok: true, id });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/push/test', async (req, res) => {
+  try {
+    const subs = await pool.query('SELECT subscription FROM push_subscriptions');
+    const payload = JSON.stringify({
+      title: "Runway",
+      body: req.body?.message || "The mat is waiting.",
+      icon: "/icon-192.png",
+      url: "/",
+    });
+    const results = await Promise.allSettled(
+      subs.rows.map(row => webpush.sendNotification(row.subscription, payload))
+    );
+    const sent = results.filter(r => r.status === 'fulfilled').length;
+    const failed = results.filter(r => r.status === 'rejected').length;
+    // Clean up expired subscriptions
+    for (let i = 0; i < results.length; i++) {
+      if (results[i].status === 'rejected' && results[i].reason?.statusCode === 410) {
+        await pool.query('DELETE FROM push_subscriptions WHERE subscription = $1', [subs.rows[i].subscription]);
+      }
+    }
+    res.json({ sent, failed });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ----- ElevenLabs TTS proxy -----
+app.post('/api/tts', async (req, res) => {
+  try {
+    if (!ELEVENLABS_API_KEY) return res.status(503).json({ error: 'ElevenLabs not configured' });
+    const { text } = req.body;
+    if (!text?.trim()) return res.status(400).json({ error: 'empty text' });
+
+    const voiceId = ELEVENLABS_VOICE_ID;
+    const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'xi-api-key': ELEVENLABS_API_KEY,
+      },
+      body: JSON.stringify({
+        text: text.slice(0, 5000),
+        model_id: 'eleven_turbo_v2_5',
+        voice_settings: {
+          stability: 0.5,
+          similarity_boost: 0.75,
+          style: 0.3,
+          use_speaker_boost: true,
+        },
+      }),
+    });
+
+    if (!r.ok) {
+      const err = await r.text();
+      throw new Error(`ElevenLabs ${r.status}: ${err}`);
+    }
+
+    res.set({
+      'Content-Type': 'audio/mpeg',
+      'Cache-Control': 'public, max-age=3600',
+    });
+    const arrayBuffer = await r.arrayBuffer();
+    res.send(Buffer.from(arrayBuffer));
+  } catch (e) {
+    console.error('TTS error:', e.message);
     res.status(500).json({ error: e.message });
   }
 });

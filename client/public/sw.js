@@ -1,4 +1,4 @@
-const CACHE_NAME = 'boston-runway-v1';
+const CACHE_NAME = 'boston-runway-v2';
 const PRECACHE = ['/', '/index.html'];
 
 self.addEventListener('install', (e) => {
@@ -34,6 +34,40 @@ self.addEventListener('fetch', (e) => {
         return response;
       }).catch(() => cached);
       return cached || fetchPromise;
+    })
+  );
+});
+
+// ----- Push Notifications -----
+self.addEventListener('push', (e) => {
+  let data = { title: 'Runway', body: 'The mat is waiting.', icon: '/icon-192.png', url: '/' };
+  try {
+    if (e.data) data = { ...data, ...e.data.json() };
+  } catch {}
+
+  e.waitUntil(
+    self.registration.showNotification(data.title, {
+      body: data.body,
+      icon: data.icon,
+      badge: '/icon-192.png',
+      tag: 'runway-notification',
+      renotify: true,
+      data: { url: data.url || '/' },
+    })
+  );
+});
+
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const url = e.notification.data?.url || '/';
+  e.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windowClients => {
+      for (const client of windowClients) {
+        if (client.url.includes(self.location.origin) && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      return clients.openWindow(url);
     })
   );
 });
