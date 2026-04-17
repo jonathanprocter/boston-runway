@@ -73,6 +73,11 @@ export default function App() {
   // Push notification state
   const [pushEnabled, setPushEnabled] = useState(false);
 
+  // Dictation (speech-to-text) + conversational mode
+  const [isListening, setIsListening] = useState(false);
+  const [conversationalMode, setConversationalMode] = useState(false);
+  const recognitionRef = useRef(null);
+
   // Ephemeral drafts
   const [morningDraft, setMorningDraft] = useState({
     mainIntention: '', anticipatedUrge: '', mood: 4,
@@ -231,6 +236,108 @@ export default function App() {
     }
   };
 
+  // ---------- dictation (speech-to-text) ----------
+  const startListening = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) { console.warn('Speech recognition not supported'); return; }
+
+    if (recognitionRef.current) { recognitionRef.current.stop(); }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.interimResults = true;
+    recognition.continuous = true;
+    recognition.maxAlternatives = 1;
+
+    let finalTranscript = '';
+
+    recognition.onresult = (e) => {
+      let interim = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) {
+          finalTranscript += e.results[i][0].transcript + ' ';
+        } else {
+          interim += e.results[i][0].transcript;
+        }
+      }
+      setChatInput(finalTranscript + interim);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+      recognitionRef.current = null;
+    };
+
+    recognition.onerror = (e) => {
+      if (e.error !== 'no-speech') console.warn('Speech error:', e.error);
+      setIsListening(false);
+      recognitionRef.current = null;
+    };
+
+    recognitionRef.current = recognition;
+    recognition.start();
+    setIsListening(true);
+  };
+
+  const stopListening = () => {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
+    }
+    setIsListening(false);
+  };
+
+  const toggleListening = () => {
+    if (isListening) stopListening();
+    else startListening();
+  };
+
+  // ---------- conversational send (dictate → send → auto-speak reply) ----------
+  const sendChatConversational = async (override) => {
+    stopListening();
+    const text = (override ?? chatInput).trim();
+    if (!text) return;
+    setChatInput('');
+    setChatLoading(true);
+    const userMsg = { role: 'user', content: text, timestamp: new Date().toISOString() };
+    setChatHistory(prev => [...prev, userMsg]);
+    try {
+      const result = await api.sendChat(text);
+      setChatHistory(prev => {
+        const withoutLast = prev.slice(0, -1);
+        return [...withoutLast, result.user, result.assistant];
+      });
+      // Auto-speak Claude's reply in conversational mode
+      if (conversationalMode && result.assistant?.content) {
+        try {
+          const blob = await api.tts(result.assistant.content);
+          const url = URL.createObjectURL(blob);
+          const audio = new Audio(url);
+          audioRef.current = audio;
+          setPlayingVoice('auto');
+          audio.onended = () => {
+            setPlayingVoice(null);
+            audioRef.current = null;
+            URL.revokeObjectURL(url);
+            // Re-start listening after Claude finishes speaking
+            startListening();
+          };
+          audio.onerror = () => { setPlayingVoice(null); audioRef.current = null; URL.revokeObjectURL(url); };
+          await audio.play();
+        } catch { /* TTS failed — no auto-speak */ }
+      }
+    } catch (err) {
+      setChatHistory(prev => [...prev, {
+        role: 'assistant',
+        content: `The API call failed: ${err.message}. The recipe hasn't moved — after you ${resolvedAnchor.toLowerCase()}, the mat comes out.`,
+        timestamp: new Date().toISOString(),
+        error: true,
+      }]);
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
   // ---------- derived ----------
   const today = new Date().toISOString().slice(0, 10);
   const retreat = new Date(config.retreatDate + 'T00:00:00');
@@ -301,32 +408,7 @@ export default function App() {
     goTo('dashboard');
   };
 
-  const sendChatMessage = async (override) => {
-    const text = (override ?? chatInput).trim();
-    if (!text) return;
-    setChatInput('');
-    setChatLoading(true);
-    // Optimistic update
-    const userMsg = { role: 'user', content: text, timestamp: new Date().toISOString() };
-    setChatHistory(prev => [...prev, userMsg]);
-    try {
-      const result = await api.sendChat(text);
-      setChatHistory(prev => {
-        // Replace optimistic user msg with server version and append assistant
-        const withoutLast = prev.slice(0, -1);
-        return [...withoutLast, result.user, result.assistant];
-      });
-    } catch (err) {
-      setChatHistory(prev => [...prev, {
-        role: 'assistant',
-        content: `The API call failed: ${err.message}. The recipe hasn't moved — after you ${resolvedAnchor.toLowerCase()}, the mat comes out.`,
-        timestamp: new Date().toISOString(),
-        error: true,
-      }]);
-    } finally {
-      setChatLoading(false);
-    }
-  };
+  const sendChatMessage = (override) => sendChatConversational(override);
 
   const clearChat = async () => {
     try { await api.clearChat(); setChatHistory([]); } catch {}
@@ -1577,12 +1659,49 @@ export default function App() {
 
         {/* Input — sticky bottom */}
         <div className="sticky bottom-4 pt-4 stagger-in delay-3">
+          {/* Conversational mode toggle */}
+          <div className="flex justify-center mb-2">
+            <button
+              onClick={() => {
+                const next = !conversationalMode;
+                setConversationalMode(next);
+                if (!next) stopListening();
+              }}
+              className={`text-[10px] uppercase tracking-[0.22em] px-4 py-1.5 rounded-chip border smooth ${
+                conversationalMode
+                  ? 'john-accent-bg text-white border-transparent'
+                  : 'john-border john-muted bg-white/50 hover:text-black'
+              }`}
+            >
+              {conversationalMode ? 'Conversational mode on' : 'Conversational mode'}
+            </button>
+          </div>
           <div className="companion-input p-2 flex items-end gap-2">
+            {/* Mic button */}
+            {(window.SpeechRecognition || window.webkitSpeechRecognition) && (
+              <button
+                onClick={toggleListening}
+                className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center smooth ${
+                  isListening
+                    ? 'john-accent-bg text-white animate-pulse'
+                    : 'border john-border john-muted hover:text-black'
+                }`}
+                title={isListening ? 'Stop dictation' : 'Start dictation'}
+                style={{ minWidth: 40, minHeight: 40 }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                  <line x1="12" y1="19" x2="12" y2="23"/>
+                  <line x1="8" y1="23" x2="16" y2="23"/>
+                </svg>
+              </button>
+            )}
             <textarea
               value={chatInput}
               onChange={e => setChatInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); } }}
-              placeholder="Ask Claude something…"
+              placeholder={isListening ? 'Listening…' : 'Ask Claude something…'}
               rows={1}
               className="flex-1 px-3 py-2 bg-transparent body text-base focus:outline-none resize-none"
               style={{ minHeight: 42, maxHeight: 120 }}
@@ -1594,7 +1713,7 @@ export default function App() {
             >Send</button>
           </div>
           <p className="text-xs john-muted italic mt-2 text-center">
-            Enter to send · Shift+Enter for new line · Claude has your context
+            {isListening ? 'Speak now — tap mic or Send when done' : conversationalMode ? 'Tap mic to talk — Claude will speak back' : 'Enter to send · Shift+Enter for new line · Claude has your context'}
           </p>
         </div>
       </Shell>
