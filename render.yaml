@@ -25,7 +25,7 @@ services:
 
 databases:
   - name: boston-runway-db
-    plan: starter  # $7/mo — change to "free" if Render still offers a free Postgres tier
+    plan: basic_256mb
     databaseName: boston_runway
     user: boston_runway
     region: oregon
