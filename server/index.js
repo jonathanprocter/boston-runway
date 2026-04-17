@@ -461,6 +461,22 @@ Keep it to ONE sentence. Present tense or simple past. No question marks. No exc
   }
 });
 
+// ----- Factory reset (one-time use, remove after first wipe) -----
+app.post('/api/reset-all', async (req, res) => {
+  try {
+    await pool.query('DELETE FROM events');
+    await pool.query('DELETE FROM intentions');
+    await pool.query('DELETE FROM reflections');
+    await pool.query('DELETE FROM chat_messages');
+    await pool.query('DELETE FROM insights');
+    await pool.query('DELETE FROM daily_praise');
+    await pool.query('DELETE FROM config');
+    res.json({ ok: true, message: 'All tables wiped. Clean slate for John.' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ----- Health check -----
 app.get('/api/health', (req, res) => res.json({ ok: true, model: ANTHROPIC_MODEL }));
 
