@@ -1,0 +1,21 @@
+{
+  "name": "boston-runway",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Behavioral co-pilot for John's Boston yoga retreat runway. Built by Jonathan Procter, Ph.D., LMHC.",
+  "scripts": {
+    "build": "npm --prefix client install && npm --prefix client run build",
+    "start": "node server/index.js",
+    "dev:server": "node --watch server/index.js",
+    "dev:client": "npm --prefix client run dev"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "pg": "^8.12.0"
+  }
+}

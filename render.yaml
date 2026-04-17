@@ -1,0 +1,32 @@
+# Render infrastructure for Boston Runway
+# Deploys as a single web service + managed Postgres database.
+# On first deploy, Render reads this file and provisions both.
+
+services:
+  - type: web
+    name: boston-runway
+    runtime: node
+    plan: starter  # $7/mo — change to "free" if Render still offers a free web tier
+    region: oregon  # change if preferred (ohio, frankfurt, singapore, etc.)
+    buildCommand: "npm install && npm run build"
+    startCommand: "npm start"
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: ANTHROPIC_API_KEY
+        sync: false  # set manually in Render dashboard (secret)
+      - key: ANTHROPIC_MODEL
+        value: claude-opus-4-7
+      - key: DATABASE_URL
+        fromDatabase:
+          name: boston-runway-db
+          property: connectionString
+
+databases:
+  - name: boston-runway-db
+    plan: starter  # $7/mo — change to "free" if Render still offers a free Postgres tier
+    databaseName: boston_runway
+    user: boston_runway
+    region: oregon
+    postgresMajorVersion: "16"
